@@ -1,15 +1,20 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import AuthForm from "./AuthForm";
 
 type Tier = "liked" | "ok" | "disliked";
 
 type Place = {
   id: string;
+  user_id: string;
   name: string;
   city: string;
   category: string;
   tier: Tier;
+  sort_order: number;
 };
 
 type PendingPrompt = {
@@ -62,6 +67,9 @@ function tierLabel(tier: Tier) {
 }
 
 export default function Home() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
   const [places, setPlaces] = useState<Place[]>([]);
   const [name, setName] = useState("");
   const [city, setCity] = useState("");
@@ -70,57 +78,104 @@ export default function Home() {
     null
   );
   const [comparison, setComparison] = useState<Comparison | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  function moveIntoBucket(
-    prev: Place[],
-    place: Place,
-    bucket: Place[],
-    index: number
-  ) {
-    const withoutPlace = prev.filter((p) => p.id !== place.id);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
 
-    if (bucket.length === 0) return [...withoutPlace, place];
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, newSession) => {
+        setSession(newSession);
+        if (!newSession) {
+          setPlaces([]);
+          setPendingPrompt(null);
+          setComparison(null);
+        }
+      }
+    );
 
-    if (index >= bucket.length) {
-      const lastId = bucket[bucket.length - 1].id;
-      const idx = withoutPlace.findIndex((p) => p.id === lastId);
-      return [
-        ...withoutPlace.slice(0, idx + 1),
-        place,
-        ...withoutPlace.slice(idx + 1),
-      ];
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  async function loadPlaces() {
+    const { data, error } = await supabase
+      .from("places")
+      .select("*")
+      .order("sort_order", { ascending: true });
+
+    if (error) {
+      setErrorMessage(error.message);
+      return;
     }
-
-    const beforeId = bucket[index].id;
-    const idx = withoutPlace.findIndex((p) => p.id === beforeId);
-    return [...withoutPlace.slice(0, idx), place, ...withoutPlace.slice(idx)];
+    setPlaces(data ?? []);
   }
 
-  function handleAdd(tier: Tier) {
-    if (comparison) return;
+  useEffect(() => {
+    if (!session) return;
+    let ignore = false;
+
+    supabase
+      .from("places")
+      .select("*")
+      .order("sort_order", { ascending: true })
+      .then(({ data, error }) => {
+        if (ignore) return;
+        if (error) setErrorMessage(error.message);
+        else setPlaces(data ?? []);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [session]);
+
+  async function handleAdd(tier: Tier) {
+    if (comparison || busy || !session) return;
 
     const trimmedName = name.trim();
     const trimmedCity = city.trim();
     if (!trimmedName || !trimmedCity) return;
 
-    const newPlace: Place = {
-      id: crypto.randomUUID(),
-      name: trimmedName,
-      city: trimmedCity,
-      category,
-      tier,
-    };
-
     const key = bucketKey(trimmedCity, category, tier);
     const bucket = places.filter(
       (p) => bucketKey(p.city, p.category, p.tier) === key
     );
+    const initialSortOrder = bucket.length
+      ? bucket[bucket.length - 1].sort_order + 1000
+      : 1000;
 
-    setPlaces((prev) => [...prev, newPlace]);
+    setBusy(true);
+    setErrorMessage(null);
+
+    const { data, error } = await supabase
+      .from("places")
+      .insert({
+        user_id: session.user.id,
+        name: trimmedName,
+        city: trimmedCity,
+        category,
+        tier,
+        sort_order: initialSortOrder,
+      })
+      .select()
+      .single();
+
+    if (error || !data) {
+      setErrorMessage(error?.message ?? "Mekan eklenemedi.");
+      setBusy(false);
+      return;
+    }
+
+    await loadPlaces();
     setName("");
     setCity("");
     setCategory(CATEGORIES[0]);
-    setPendingPrompt(bucket.length > 0 ? { place: newPlace, bucket } : null);
+    setPendingPrompt(bucket.length > 0 ? { place: data, bucket } : null);
+    setBusy(false);
   }
 
   function handleStartCompare() {
@@ -139,34 +194,58 @@ export default function Home() {
     setPendingPrompt(null);
   }
 
-  function handleChoose(winner: "new" | "existing") {
-    setComparison((current) => {
-      if (!current) return current;
+  async function handleChoose(winner: "new" | "existing") {
+    if (!comparison || busy) return;
 
-      const { place, bucket, lo, hi, round } = current;
-      const mid = Math.floor((lo + hi) / 2);
-      const nextLo = winner === "new" ? lo : mid + 1;
-      const nextHi = winner === "new" ? mid : hi;
+    const { place, bucket, lo, hi, round } = comparison;
+    const mid = Math.floor((lo + hi) / 2);
+    const nextLo = winner === "new" ? lo : mid + 1;
+    const nextHi = winner === "new" ? mid : hi;
 
-      if (nextLo < nextHi) {
-        return { place, bucket, lo: nextLo, hi: nextHi, round: round + 1 };
-      }
+    if (nextLo < nextHi) {
+      setComparison({ place, bucket, lo: nextLo, hi: nextHi, round: round + 1 });
+      return;
+    }
 
-      setPlaces((prev) => moveIntoBucket(prev, place, bucket, nextLo));
-      return null;
-    });
+    let newSortOrder: number;
+    if (nextLo <= 0) {
+      newSortOrder = bucket[0].sort_order - 1000;
+    } else if (nextLo >= bucket.length) {
+      newSortOrder = bucket[bucket.length - 1].sort_order + 1000;
+    } else {
+      newSortOrder = (bucket[nextLo - 1].sort_order + bucket[nextLo].sort_order) / 2;
+    }
+
+    setBusy(true);
+    const { error } = await supabase
+      .from("places")
+      .update({ sort_order: newSortOrder })
+      .eq("id", place.id);
+
+    if (error) setErrorMessage(error.message);
+    await loadPlaces();
+    setComparison(null);
+    setBusy(false);
   }
 
   function handleCancelCompare() {
     setComparison(null);
   }
 
-  function handleDelete(id: string) {
-    if (comparison) return;
-    setPlaces((prev) => prev.filter((place) => place.id !== id));
+  async function handleDelete(id: string) {
+    if (comparison || busy) return;
+    setBusy(true);
+    const { error } = await supabase.from("places").delete().eq("id", id);
+    if (error) setErrorMessage(error.message);
+    await loadPlaces();
     setPendingPrompt((current) =>
       current && current.place.id === id ? null : current
     );
+    setBusy(false);
+  }
+
+  async function handleSignOut() {
+    await supabase.auth.signOut();
   }
 
   useEffect(() => {
@@ -183,7 +262,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [comparison]);
 
-  const groups = useMemo(() => {
+  const groups = (() => {
     const map = new Map<
       string,
       { city: string; category: string; items: Place[] }
@@ -210,7 +289,7 @@ export default function Home() {
           ? cityDiff
           : a.category.localeCompare(b.category, "tr");
       });
-  }, [places]);
+  })();
 
   const mid = comparison
     ? Math.floor((comparison.lo + comparison.hi) / 2)
@@ -218,15 +297,46 @@ export default function Home() {
   const opponent =
     comparison && mid !== null ? comparison.bucket[mid] : null;
 
+  if (authLoading) {
+    return (
+      <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Yükleniyor...</p>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <AuthForm />;
+  }
+
   return (
     <div className="flex flex-1 justify-center bg-zinc-50 px-4 py-12 dark:bg-black">
       <main className="w-full max-w-xl">
-        <h1 className="mb-8 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
-          Seyahat Mekanları
-        </h1>
+        <div className="mb-8 flex items-center justify-between">
+          <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+            Seyahat Mekanları
+          </h1>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-zinc-500 dark:text-zinc-400">
+              {session.user.email}
+            </span>
+            <button
+              onClick={handleSignOut}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            >
+              Çıkış Yap
+            </button>
+          </div>
+        </div>
+
+        {errorMessage && (
+          <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+            {errorMessage}
+          </p>
+        )}
 
         <form
-          onSubmit={(e: FormEvent<HTMLFormElement>) => e.preventDefault()}
+          onSubmit={(e) => e.preventDefault()}
           className="mb-4 flex flex-col gap-4 rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
         >
           <div className="flex flex-col gap-1.5">
@@ -293,7 +403,7 @@ export default function Home() {
                 <button
                   key={t.key}
                   type="button"
-                  disabled={comparison !== null}
+                  disabled={comparison !== null || busy}
                   onClick={() => handleAdd(t.key)}
                   className="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                 >
@@ -368,7 +478,7 @@ export default function Home() {
                       </div>
                       <button
                         onClick={() => handleDelete(place.id)}
-                        disabled={comparison !== null}
+                        disabled={comparison !== null || busy}
                         aria-label={`${place.name} mekanını sil`}
                         className="text-sm text-zinc-400 transition-colors hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                       >
@@ -410,13 +520,15 @@ export default function Home() {
             <div className="flex w-full max-w-3xl flex-col gap-4 sm:flex-row">
               <button
                 onClick={() => handleChoose("new")}
-                className="flex h-56 flex-1 items-center justify-center rounded-2xl border-2 border-zinc-300 bg-white px-6 text-center text-2xl font-semibold text-zinc-900 transition-colors hover:border-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:hover:border-zinc-50"
+                disabled={busy}
+                className="flex h-56 flex-1 items-center justify-center rounded-2xl border-2 border-zinc-300 bg-white px-6 text-center text-2xl font-semibold text-zinc-900 transition-colors hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:hover:border-zinc-50"
               >
                 {comparison.place.name}
               </button>
               <button
                 onClick={() => handleChoose("existing")}
-                className="flex h-56 flex-1 items-center justify-center rounded-2xl border-2 border-zinc-300 bg-white px-6 text-center text-2xl font-semibold text-zinc-900 transition-colors hover:border-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:hover:border-zinc-50"
+                disabled={busy}
+                className="flex h-56 flex-1 items-center justify-center rounded-2xl border-2 border-zinc-300 bg-white px-6 text-center text-2xl font-semibold text-zinc-900 transition-colors hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:hover:border-zinc-50"
               >
                 {opponent.name}
               </button>
