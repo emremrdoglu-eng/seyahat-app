@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { groupPlaces, TIER_BADGE_CLASSES, tierLabel } from "@/lib/places";
 import { getPublicGuideData } from "./data";
@@ -97,6 +98,15 @@ export default async function RehberPage({ params }: Props) {
             ))
           )}
         </section>
+
+        <p className="mt-10 text-center">
+          <Link
+            href="/hakkinda"
+            className="text-xs text-zinc-400 underline hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-500"
+          >
+            Hakkında
+          </Link>
+        </p>
       </main>
     </div>
   );

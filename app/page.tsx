@@ -18,6 +18,7 @@ import {
 import type { Country } from "@/lib/countries";
 import AuthForm from "./AuthForm";
 import CountrySelect from "./CountrySelect";
+import CitySelect from "./CitySelect";
 
 type PendingPrompt = {
   place: Place;
@@ -46,6 +47,10 @@ export default function Home() {
   const [country, setCountry] = useState<Country | null>(null);
   const [countryFieldKey, setCountryFieldKey] = useState(0);
   const [city, setCity] = useState("");
+  const [cityCoords, setCityCoords] = useState<{
+    lat: number;
+    lon: number;
+  } | null>(null);
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [pendingPrompt, setPendingPrompt] = useState<PendingPrompt | null>(
     null
@@ -217,6 +222,9 @@ export default function Home() {
         sort_order: initialSortOrder,
         country_code: country?.code ?? null,
         country_name: country?.tr ?? null,
+        city_name: trimmedCity,
+        latitude: cityCoords?.lat ?? null,
+        longitude: cityCoords?.lon ?? null,
       })
       .select()
       .single();
@@ -232,6 +240,7 @@ export default function Home() {
     setCountry(null);
     setCountryFieldKey((k) => k + 1);
     setCity("");
+    setCityCoords(null);
     setCategory(CATEGORIES[0]);
     setPendingPrompt(bucket.length > 0 ? { place: data, bucket } : null);
     setBusy(false);
@@ -440,25 +449,21 @@ export default function Home() {
           <CountrySelect
             key={countryFieldKey}
             value={country}
-            onChange={setCountry}
+            onChange={(next) => {
+              setCountry(next);
+              setCity("");
+              setCityCoords(null);
+            }}
           />
 
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="city"
-              className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-            >
-              Şehir
-            </label>
-            <input
-              id="city"
-              type="text"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              placeholder="Örn. İstanbul"
-              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-            />
-          </div>
+          <CitySelect
+            countryCode={country?.code ?? null}
+            value={city}
+            onChange={(nextCity, coords) => {
+              setCity(nextCity);
+              setCityCoords(coords);
+            }}
+          />
 
           <div className="flex flex-col gap-1.5">
             <label
@@ -578,6 +583,19 @@ export default function Home() {
             ))
           )}
         </section>
+
+        <p className="mt-10 text-center text-xs text-zinc-400 dark:text-zinc-600">
+          Şehir verileri:{" "}
+          <a
+            href="https://www.geonames.org"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-zinc-500 dark:hover:text-zinc-500"
+          >
+            GeoNames.org
+          </a>{" "}
+          (CC BY 4.0)
+        </p>
       </main>
 
       {comparison && opponent && (
