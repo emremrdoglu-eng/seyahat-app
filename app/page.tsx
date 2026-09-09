@@ -15,7 +15,9 @@ import {
   type Place,
   type Tier,
 } from "@/lib/places";
+import type { Country } from "@/lib/countries";
 import AuthForm from "./AuthForm";
+import CountrySelect from "./CountrySelect";
 
 type PendingPrompt = {
   place: Place;
@@ -41,6 +43,8 @@ export default function Home() {
 
   const [places, setPlaces] = useState<Place[]>([]);
   const [name, setName] = useState("");
+  const [country, setCountry] = useState<Country | null>(null);
+  const [countryFieldKey, setCountryFieldKey] = useState(0);
   const [city, setCity] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [pendingPrompt, setPendingPrompt] = useState<PendingPrompt | null>(
@@ -211,6 +215,8 @@ export default function Home() {
         category,
         tier,
         sort_order: initialSortOrder,
+        country_code: country?.code ?? null,
+        country_name: country?.tr ?? null,
       })
       .select()
       .single();
@@ -223,6 +229,8 @@ export default function Home() {
 
     await loadPlaces();
     setName("");
+    setCountry(null);
+    setCountryFieldKey((k) => k + 1);
     setCity("");
     setCategory(CATEGORIES[0]);
     setPendingPrompt(bucket.length > 0 ? { place: data, bucket } : null);
@@ -428,6 +436,12 @@ export default function Home() {
               className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
             />
           </div>
+
+          <CountrySelect
+            key={countryFieldKey}
+            value={country}
+            onChange={setCountry}
+          />
 
           <div className="flex flex-col gap-1.5">
             <label

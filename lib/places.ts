@@ -8,6 +8,11 @@ export type Place = {
   category: string;
   tier: Tier;
   sort_order: number;
+  country_code: string | null;
+  country_name: string | null;
+  city_name: string | null;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 export type PlaceGroup = {
