@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return { title: "Rehber bulunamadı" };
   }
 
-  const cityCount = new Set(data.places.map((p) => p.city)).size;
+  const cityCount = new Set(data.places.map((p) => p.city_name)).size;
   const title = `${data.username} — Seyahat Rehberi`;
   const description =
     data.places.length > 0
@@ -70,9 +70,9 @@ export default async function RehberPage({ params }: Props) {
             </p>
           ) : (
             groups.map((group) => (
-              <div key={`${group.city}|${group.category}`}>
+              <div key={`${group.city_name}|${group.category}`}>
                 <h2 className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-50">
-                  {group.city} · {group.category}
+                  {group.city_name} · {group.category}
                 </h2>
                 <ol className="flex flex-col gap-3">
                   {group.items.map((place, index) => (

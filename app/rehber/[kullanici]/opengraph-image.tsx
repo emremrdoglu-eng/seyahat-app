@@ -13,7 +13,9 @@ export default async function Image({ params }: Props) {
   const data = await getPublicGuideData(kullanici);
 
   const placeCount = data?.places.length ?? 0;
-  const cityCount = data ? new Set(data.places.map((p) => p.city)).size : 0;
+  const cityCount = data
+    ? new Set(data.places.map((p) => p.city_name)).size
+    : 0;
 
   return new ImageResponse(
     (

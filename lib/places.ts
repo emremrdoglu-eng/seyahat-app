@@ -4,19 +4,18 @@ export type Place = {
   id: string;
   user_id: string;
   name: string;
-  city: string;
+  city_name: string;
   category: string;
   tier: Tier;
   sort_order: number;
   country_code: string | null;
   country_name: string | null;
-  city_name: string | null;
   latitude: number | null;
   longitude: number | null;
 };
 
 export type PlaceGroup = {
-  city: string;
+  city_name: string;
   category: string;
   items: Place[];
 };
@@ -45,12 +44,12 @@ export const TIER_BADGE_CLASSES: Record<Tier, string> = {
   disliked: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
 };
 
-export function normalizedCity(city: string) {
-  return city.trim().toLocaleLowerCase("tr");
+export function normalizedCity(cityName: string) {
+  return cityName.trim().toLocaleLowerCase("tr");
 }
 
-export function bucketKey(city: string, category: string, tier: Tier) {
-  return `${normalizedCity(city)}|${category}|${tier}`;
+export function bucketKey(cityName: string, category: string, tier: Tier) {
+  return `${normalizedCity(cityName)}|${category}|${tier}`;
 }
 
 export function tierLabel(tier: Tier) {
@@ -61,9 +60,13 @@ export function groupPlaces(places: Place[]): PlaceGroup[] {
   const map = new Map<string, PlaceGroup>();
 
   for (const place of places) {
-    const key = `${normalizedCity(place.city)}|${place.category}`;
+    const key = `${normalizedCity(place.city_name)}|${place.category}`;
     if (!map.has(key)) {
-      map.set(key, { city: place.city, category: place.category, items: [] });
+      map.set(key, {
+        city_name: place.city_name,
+        category: place.category,
+        items: [],
+      });
     }
     map.get(key)!.items.push(place);
   }
@@ -76,7 +79,7 @@ export function groupPlaces(places: Place[]): PlaceGroup[] {
       ),
     }))
     .sort((a, b) => {
-      const cityDiff = a.city.localeCompare(b.city, "tr");
+      const cityDiff = a.city_name.localeCompare(b.city_name, "tr");
       return cityDiff !== 0
         ? cityDiff
         : a.category.localeCompare(b.category, "tr");

@@ -202,7 +202,7 @@ export default function Home() {
 
     const key = bucketKey(trimmedCity, category, tier);
     const bucket = places.filter(
-      (p) => bucketKey(p.city, p.category, p.tier) === key
+      (p) => bucketKey(p.city_name, p.category, p.tier) === key
     );
     const initialSortOrder = bucket.length
       ? bucket[bucket.length - 1].sort_order + 1000
@@ -216,7 +216,6 @@ export default function Home() {
       .insert({
         user_id: session.user.id,
         name: trimmedName,
-        city: trimmedCity,
         category,
         tier,
         sort_order: initialSortOrder,
@@ -512,7 +511,8 @@ export default function Home() {
               <span className="font-medium text-zinc-900 dark:text-zinc-50">
                 {pendingPrompt.place.name}
               </span>{" "}
-              mekanını {pendingPrompt.place.city} · {pendingPrompt.place.category}{" "}
+              mekanını {pendingPrompt.place.city_name} ·{" "}
+              {pendingPrompt.place.category}{" "}
               · {tierLabel(pendingPrompt.place.tier)} içindeki diğer mekanlarla
               karşılaştırıp sıralamak ister misin?
             </p>
@@ -545,9 +545,9 @@ export default function Home() {
             </div>
           ) : (
             groups.map((group) => (
-              <div key={`${normalizedCity(group.city)}|${group.category}`}>
+              <div key={`${normalizedCity(group.city_name)}|${group.category}`}>
                 <h2 className="mb-3 text-lg font-medium text-zinc-900 dark:text-zinc-50">
-                  {group.city} · {group.category}
+                  {group.city_name} · {group.category}
                 </h2>
                 <ol className="flex flex-col gap-3">
                   {group.items.map((place, index) => (
@@ -603,7 +603,7 @@ export default function Home() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                {comparison.place.city} · {comparison.place.category} ·{" "}
+                {comparison.place.city_name} · {comparison.place.category} ·{" "}
                 {tierLabel(comparison.place.tier)}
               </p>
               <p className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
