@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { groupPlaces, TIER_BADGE_CLASSES, tierLabel } from "@/lib/places";
 import { getPublicGuideData } from "./data";
 import ShareButton from "./ShareButton";
+import WorldMapLazy from "../../WorldMapLazy";
 
 type Props = {
   params: Promise<{ kullanici: string }>;
@@ -61,6 +62,10 @@ export default async function RehberPage({ params }: Props) {
             </p>
           </div>
           <ShareButton />
+        </div>
+
+        <div className="mb-8">
+          <WorldMapLazy places={data.places} />
         </div>
 
         <section className="flex flex-col gap-8">

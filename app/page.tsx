@@ -19,6 +19,7 @@ import type { Country } from "@/lib/countries";
 import AuthForm from "./AuthForm";
 import CountrySelect from "./CountrySelect";
 import CitySelect from "./CitySelect";
+import WorldMapLazy from "./WorldMapLazy";
 
 type PendingPrompt = {
   place: Place;
@@ -367,6 +368,10 @@ export default function Home() {
               Çıkış Yap
             </button>
           </div>
+        </div>
+
+        <div className="mb-8">
+          <WorldMapLazy places={places} />
         </div>
 
         {errorMessage && (
