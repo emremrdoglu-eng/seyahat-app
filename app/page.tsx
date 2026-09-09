@@ -1,21 +1,21 @@
 "use client";
 
 import type { Session } from "@supabase/supabase-js";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  CATEGORIES,
+  TIERS,
+  TIER_BADGE_CLASSES,
+  bucketKey,
+  groupPlaces,
+  isValidUsername,
+  normalizedCity,
+  tierLabel,
+  type Place,
+  type Tier,
+} from "@/lib/places";
 import AuthForm from "./AuthForm";
-
-type Tier = "liked" | "ok" | "disliked";
-
-type Place = {
-  id: string;
-  user_id: string;
-  name: string;
-  city: string;
-  category: string;
-  tier: Tier;
-  sort_order: number;
-};
 
 type PendingPrompt = {
   place: Place;
@@ -30,41 +30,10 @@ type Comparison = {
   round: number;
 };
 
-const CATEGORIES = [
-  "Restoran",
-  "Otel",
-  "Kafe",
-  "Gezilecek Yer",
-  "Müze",
-  "Diğer",
-];
-
-const TIERS: { key: Tier; label: string }[] = [
-  { key: "liked", label: "Beğendim" },
-  { key: "ok", label: "İdareydi" },
-  { key: "disliked", label: "Beğenmedim" },
-];
-
-const TIER_ORDER: Record<Tier, number> = { liked: 0, ok: 1, disliked: 2 };
-
-const TIER_BADGE_CLASSES: Record<Tier, string> = {
-  liked:
-    "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
-  ok: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  disliked: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+type Profile = {
+  username: string;
+  is_public: boolean;
 };
-
-function normalizedCity(city: string) {
-  return city.trim().toLocaleLowerCase("tr");
-}
-
-function bucketKey(city: string, category: string, tier: Tier) {
-  return `${normalizedCity(city)}|${category}|${tier}`;
-}
-
-function tierLabel(tier: Tier) {
-  return TIERS.find((t) => t.key === tier)!.label;
-}
 
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
@@ -81,6 +50,11 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [usernameInput, setUsernameInput] = useState("");
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
@@ -90,10 +64,12 @@ export default function Home() {
     const { data: listener } = supabase.auth.onAuthStateChange(
       (_event, newSession) => {
         setSession(newSession);
+        setProfileError(null);
         if (!newSession) {
           setPlaces([]);
           setPendingPrompt(null);
           setComparison(null);
+          setProfile(null);
         }
       }
     );
@@ -132,6 +108,81 @@ export default function Home() {
       ignore = true;
     };
   }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+    let ignore = false;
+
+    supabase
+      .from("profiles")
+      .select("username, is_public")
+      .eq("id", session.user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (ignore) return;
+        if (data) {
+          setProfile(data);
+          setUsernameInput(data.username ?? "");
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [session]);
+
+  async function handleSaveUsername(e: FormEvent) {
+    e.preventDefault();
+    if (!session) return;
+
+    const trimmed = usernameInput.trim().toLowerCase();
+    if (!isValidUsername(trimmed)) {
+      setProfileError(
+        "Kullanıcı adı 3-30 karakter olmalı, sadece küçük harf, rakam, - ve _ içerebilir."
+      );
+      return;
+    }
+
+    setProfileSaving(true);
+    setProfileError(null);
+
+    const { error } = await supabase
+      .from("profiles")
+      .upsert(
+        { id: session.user.id, username: trimmed, is_public: profile?.is_public ?? false },
+        { onConflict: "id" }
+      );
+
+    if (error) {
+      setProfileError(
+        error.code === "23505"
+          ? "Bu kullanıcı adı zaten alınmış."
+          : error.message
+      );
+    } else {
+      setProfile({ username: trimmed, is_public: profile?.is_public ?? false });
+    }
+    setProfileSaving(false);
+  }
+
+  async function handleTogglePublic() {
+    if (!session || !profile) return;
+    const nextIsPublic = !profile.is_public;
+
+    setProfileSaving(true);
+    setProfileError(null);
+
+    const { error } = await supabase
+      .from("profiles")
+      .upsert(
+        { id: session.user.id, username: profile.username, is_public: nextIsPublic },
+        { onConflict: "id" }
+      );
+
+    if (error) setProfileError(error.message);
+    else setProfile({ ...profile, is_public: nextIsPublic });
+    setProfileSaving(false);
+  }
 
   async function handleAdd(tier: Tier) {
     if (comparison || busy || !session) return;
@@ -262,34 +313,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [comparison]);
 
-  const groups = (() => {
-    const map = new Map<
-      string,
-      { city: string; category: string; items: Place[] }
-    >();
-
-    for (const place of places) {
-      const key = `${normalizedCity(place.city)}|${place.category}`;
-      if (!map.has(key)) {
-        map.set(key, { city: place.city, category: place.category, items: [] });
-      }
-      map.get(key)!.items.push(place);
-    }
-
-    return Array.from(map.values())
-      .map((group) => ({
-        ...group,
-        items: [...group.items].sort(
-          (a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier]
-        ),
-      }))
-      .sort((a, b) => {
-        const cityDiff = a.city.localeCompare(b.city, "tr");
-        return cityDiff !== 0
-          ? cityDiff
-          : a.category.localeCompare(b.category, "tr");
-      });
-  })();
+  const groups = groupPlaces(places);
 
   const mid = comparison
     ? Math.floor((comparison.lo + comparison.hi) / 2)
@@ -334,6 +358,55 @@ export default function Home() {
             {errorMessage}
           </p>
         )}
+
+        <div className="mb-4 flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+            Profil
+          </h2>
+          <form onSubmit={handleSaveUsername} className="flex gap-2">
+            <input
+              type="text"
+              value={usernameInput}
+              onChange={(e) => setUsernameInput(e.target.value)}
+              placeholder="kullanici-adi"
+              className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+            />
+            <button
+              type="submit"
+              disabled={profileSaving}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              Kaydet
+            </button>
+          </form>
+
+          {profileError && (
+            <p className="text-sm text-red-500">{profileError}</p>
+          )}
+
+          <label className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <input
+              type="checkbox"
+              checked={profile?.is_public ?? false}
+              disabled={!profile || profileSaving}
+              onChange={handleTogglePublic}
+              className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
+            />
+            Rehberimi herkese açık yap
+          </label>
+
+          {profile?.is_public && profile.username && (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              Herkese açık linkin:{" "}
+              <a
+                href={`/rehber/${profile.username}`}
+                className="text-zinc-900 underline dark:text-zinc-50"
+              >
+                seyahat-app.vercel.app/rehber/{profile.username}
+              </a>
+            </p>
+          )}
+        </div>
 
         <form
           onSubmit={(e) => e.preventDefault()}
